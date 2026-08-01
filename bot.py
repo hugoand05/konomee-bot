@@ -166,6 +166,15 @@ def rodar_api():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), use_reloader=False)
 
 if __name__ == '__main__':
+    print("Iniciando servidor web em segundo plano...")
     threading.Thread(target=rodar_api, daemon=True).start()
+    
+    print("Iniciando conexão com o Telegram via StringSession...")
+    if not STRING_SESSION:
+        print("ERRO CRÍTICO: A variável STRING_SESSION está vazia ou não foi encontrada no Render!")
+    else:
+        print(f"STRING_SESSION detectada (Tamanho: {len(STRING_SESSION)} caracteres). Conectando...")
+
     client.start()
+    print("Bot conectado com sucesso ao Telegram! Ouvindo mensagens...")
     client.run_until_disconnected()
