@@ -45,36 +45,51 @@ def identificar_parser_por_url(url):
         return temu.processar
     return None
 
-# Ouvinte universal com diagnóstico completo do Supabase
+# Ouvinte universal com suporte a ID numérico e Username (@handle)
 @client.on(events.NewMessage())
 async def processar_mensagem(event):
     chat_id_atual = event.chat_id
     texto = event.raw_text
     
-    # DEBUG: Mostra QUALQUER mensagem que o bot capturar, antes de qualquer filtro
     print(f"\n[DEBUG] Mensagem recebida! Chat ID: {chat_id_atual} | Texto: {texto[:30] if texto else 'Sem texto'}")
 
     if not texto:
         return
     
-    # 1. Busca e inspeciona os grupos autorizados diretamente no Supabase em tempo real
+    # 1. Busca e valida os grupos autorizados no Supabase (suporta ID numérico e Username)
     try:
         resposta_grupos = supabase.table('grupos_monitorados').select('*').execute()
-        print(f"[DEBUG SUPABASE] Dados retornados da tabela grupos_monitorados: {resposta_grupos.data}")
+        
+        chat_obj = await event.get_chat()
+        chat_numeric_id = str(event.chat_id)
+        chat_username = getattr(chat_obj, 'username', None)
+        
+        autorizados_ids = set()
+        autorizados_usernames = set()
         
         if resposta_grupos.data:
-            autorizados = []
             for g in resposta_grupos.data:
-                # Verifica várias possibilidades de nomes de colunas usadas pelo painel web
-                tid = str(g.get('telegram_id') or g.get('chat_id') or g.get('group_id') or g.get('id') or '')
+                tid = str(g.get('telegram_id') or g.get('id') or '').strip()
                 if tid:
-                    autorizados.append(int(tid) if tid.lstrip('-').isdigit() else tid)
-            
-            # Se houver grupos cadastrados e o chat atual não estiver na lista
-            if autorizados and chat_id_atual not in autorizados and str(chat_id_atual) not in [str(x) for x in autorizados]:
-                if chat_id_atual != 'me':  # Permite chat salvo para testes manuais
-                    print(f"[BLOQUEADO] Chat {chat_id_atual} não bate com a lista autorizada: {autorizados}")
-                    return
+                    if tid.startswith('@'):
+                        autorizados_usernames.add(tid.lstrip('@').lower())
+                    elif tid.lstrip('-').isdigit():
+                        autorizados_ids.add(tid)
+                    else:
+                        autorizados_usernames.add(tid.lower())
+        
+        permitido = False
+        if chat_id_atual == 'me' or chat_numeric_id == 'me':
+            permitido = True
+        elif chat_numeric_id in autorizados_ids or f"-{chat_numeric_id}" in autorizados_ids:
+            permitido = True
+        elif chat_username and chat_username.lower() in autorizados_usernames:
+            permitido = True
+        
+        if not permitido:
+            print(f"[BLOQUEADO] Chat ID {chat_numeric_id} (Username: {chat_username}) não bate com a lista autorizada.")
+            return
+
     except Exception as e:
         print(f"Erro ao validar grupo no Supabase: {e}")
         return
