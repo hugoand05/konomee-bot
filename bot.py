@@ -45,10 +45,17 @@ def identificar_parser_por_url(url):
         return temu.processar
     return None
 
-# Ouvinte universal: Valida dinamicamente no Supabase a cada mensagem recebida
+# Ouvinte universal com logs de debug detalhados
 @client.on(events.NewMessage())
 async def processar_mensagem(event):
     chat_id_atual = event.chat_id
+    texto = event.raw_text
+    
+    # DEBUG: Mostra QUALQUER mensagem que o bot capturar, antes de qualquer filtro
+    print(f"\n[DEBUG] Mensagem recebida! Chat ID: {chat_id_atual} | Texto: {texto[:30] if texto else 'Sem texto'}")
+
+    if not texto:
+        return
     
     # 1. Busca os grupos autorizados diretamente no Supabase em tempo real
     try:
@@ -60,19 +67,16 @@ async def processar_mensagem(event):
                 if tid:
                     autorizados.append(int(tid) if tid.lstrip('-').isdigit() else tid)
             
-            # Se houver grupos cadastrados e o chat atual não estiver na lista (permitindo 'me' para testes)
+            # Se houver grupos cadastrados e o chat atual não estiver na lista
             if autorizados and chat_id_atual not in autorizados and str(chat_id_atual) not in [str(x) for x in autorizados]:
                 if chat_id_atual != 'me':  # Permite chat salvo para testes manuais
+                    print(f"[BLOQUEADO] Chat {chat_id_atual} não está na lista de grupos monitorados do Supabase.")
                     return
     except Exception as e:
         print(f"Erro ao validar grupo no Supabase: {e}")
         return
 
-    texto = event.raw_text
-    if not texto:
-        return
-
-    print(f"\n--- NOVA MENSAGEM NO CHAT {chat_id_atual} ---")
+    print(f"--- NOVA MENSAGEM AUTORIZADA NO CHAT {chat_id_atual} ---")
     
     regex_links = r'https?://[^\s<>"\']+'
     links_encontrados = re.findall(regex_links, texto)
