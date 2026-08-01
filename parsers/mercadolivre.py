@@ -1,6 +1,6 @@
 import re
 import requests
-from urllib.parse import unquote, quote
+from urllib.parse import unquote
 
 def processar(texto, url_inicial):
     link_final = url_inicial.strip()
@@ -36,36 +36,33 @@ def processar(texto, url_inicial):
             break
 
     # ==========================================
-    # 2. ESTRATÉGIA DE CONTorno ANTI-BOT (PROXY DE METADADOS)
+    # 2. RASPAGEM LEVE COM REQUESTS (CRAWLER BINDING)
     # ==========================================
     html = ""
     try:
         session = requests.Session()
-        # Simula um bot de compartilhamento de redes sociais (como o Facebook/WhatsApp Crawler),
-        # que o Mercado Livre é obrigado a atender para gerar os cartões de prévia.
         session.headers.update({
             'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
             'Accept-Language': 'pt-BR,pt;q=0.9',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         })
         
-        res = session.get(link_final, allow_redirects=True, timeout=15)
+        res = session.get(link_final, allow_redirects=True, timeout=10)
         link_final = res.url
         html = res.text
         
-        # Se a rede social for barrada, tenta como Googlebot Mobile
+        # Fallback para Googlebot caso o Facebook seja desafiado
         if "captcha" in html.lower() or len(html) < 500:
             session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/W.X.Y.Z Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
             })
-            res = session.get(link_final, allow_redirects=True, timeout=15)
+            res = session.get(link_final, allow_redirects=True, timeout=10)
             html = res.text
-            
     except Exception as e:
-        print(f"⚠️ Aviso Crawler Mercado Livre: {e}")
+        print(f"⚠️ Aviso Request Mercado Livre: {e}")
 
     # ==========================================
-    # 3. EXTRATOR DE METADADOS OFICIAIS (OG TAGS)
+    # 3. EXTRATOR INTELIGENTE DE METADADOS
     # ==========================================
     if html:
         # --- TÍTULO ---
