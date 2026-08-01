@@ -41,25 +41,39 @@ def identificar_parser_por_url(url):
         return temu.processar
     return None
 
-print("Buscando grupos monitorados...")
-lista_de_chats = ['me']
-try:
-    resposta_grupos = supabase.table('grupos_monitorados').select('*').execute()
-    if resposta_grupos.data:
-        lista_de_chats = [str(g.get('telegram_id') or g.get('id') or '') for g in resposta_grupos.data]
-        lista_de_chats = [int(tid) if tid.lstrip('-').isdigit() else tid for tid in lista_de_chats if tid]
-    if not lista_de_chats: lista_de_chats = ['me']
-except:
-    pass
-
-@client.on(events.NewMessage(chats=lista_de_chats))
+# Ouvinte universal: Valida dinamicamente no Supabase a cada mensagem recebida
+@client.on(events.NewMessage())
 async def processar_mensagem(event):
+    chat_id_atual = event.chat_id
+    
+    # 1. Busca os grupos autorizados diretamente no Supabase em tempo real
+    try:
+        resposta_grupos = supabase.table('grupos_monitorados').select('*').execute()
+        if resposta_grupos.data:
+            autorizados = []
+            for g in resposta_grupos.data:
+                tid = str(g.get('telegram_id') or g.get('id') or '')
+                if tid:
+                    autorizados.append(int(tid) if tid.lstrip('-').isdigit() else tid)
+            
+            # Se houver grupos cadastrados e o chat atual não estiver na lista (permitindo 'me' para testes)
+            if autorizados and chat_id_atual not in autorizados and str(chat_id_atual) not in [str(x) for x in autorizados]:
+                if chat_id_atual != 'me':  # Permite chat salvo para testes manuais
+                    return
+    except Exception as e:
+        print(f"Erro ao validar grupo no Supabase: {e}")
+        return
+
     texto = event.raw_text
-    print("\n--- NOVA MENSAGEM DETECTADA ---")
+    if not texto:
+        return
+
+    print(f"\n--- NOVA MENSAGEM NO CHAT {chat_id_atual} ---")
     
     regex_links = r'https?://[^\s<>"\']+'
     links_encontrados = re.findall(regex_links, texto)
-    if not links_encontrados: return
+    if not links_encontrados: 
+        return
         
     # ====================================================================
     # 🎯 SELETOR INTELIGENTE DE LINKS (EVITA PÁGINAS DE MOEDAS)
@@ -71,19 +85,15 @@ async def processar_mensagem(event):
             l_clean = link.rstrip('.,;:)')
             l_lower = l_clean.lower()
             
-            # 1. Se a própria URL já denuncia que é link de moedas, pula.
             if 'coin' in l_lower:
                 continue
                 
-            # 2. Lê os 35 caracteres antes do link no texto do Telegram
             pos = texto.find(link)
             if pos != -1:
                 contexto_antes = texto[max(0, pos-35):pos].lower()
-                # Se alguém escreveu "moeda", "moedas" ou "coin" antes do link, pula.
                 if 'moeda' in contexto_antes or 'coin' in contexto_antes:
                     continue
                     
-            # Se o link sobreviveu aos testes, ele é o link de produto real!
             link_principal = l_clean
             break
     # ====================================================================
@@ -97,37 +107,28 @@ async def processar_mensagem(event):
     try:
         dados_oferta = parser_func(texto, link_principal)
         
-        # 1. Desmonta o link resolvido pelo parser para fazer a faxina
         url_parseada = urlparse(dados_oferta["link_resolvido"])
         parametros_url = parse_qs(url_parseada.query)
         
-        # 2. FAXINA INTELIGENTE: Remove lixo de afiliados dinamicamente
         chaves_url = list(parametros_url.keys())
         for chave in chaves_url:
             chave_lower = chave.lower()
-            
-            # Regra 1: Remove qualquer rastreador de afiliado do AliExpress e UTMs
             if chave_lower.startswith('aff_') or chave_lower.startswith('utm'):
                 parametros_url.pop(chave, None)
-                
-            # Regra 2: Remove rastreadores específicos de outras plataformas
             elif chave_lower in ['sk', 'share_click_id', 'alida', 'tag', 'ascsubtag', 'campid', 'customid']:
                 parametros_url.pop(chave, None)
 
-        # 3. Busca OS SEUS parâmetros cadastrados no Supabase
         lojas = supabase.table('lojas_afiliadas').select('*').execute().data or []
         dominio_atual = url_parseada.netloc.replace('www.', '')
 
         loja_identificada = next((l for l in lojas if (l.get('dominio_alvo') or '') in dominio_atual), None)
         
-        # 4. Injeta os seus parâmetros perfeitamente no link limpo
         if loja_identificada and loja_identificada.get('parametro_afiliado'):
             param_str = loja_identificada.get('parametro_afiliado').lstrip('?')
             params_supabase = parse_qs(param_str)
             for chave, valor in params_supabase.items():
                 parametros_url[chave] = valor
         
-        # 5. Remonta o link final blindado
         nova_query = urlencode(parametros_url, doseq=True)
         link_afiliado_perfeito = urlunparse((
             url_parseada.scheme, 
@@ -138,7 +139,6 @@ async def processar_mensagem(event):
             url_parseada.fragment
         ))
         
-        # Salva no banco de dados com o link perfeitamente higienizado
         supabase.table('historico_ofertas').insert([{
             "loja": dados_oferta["loja"],
             "nome_produto": dados_oferta["nome_produto"], 
@@ -155,8 +155,11 @@ async def processar_mensagem(event):
         print(f"Erro no roteamento do parser: {e}")
 
 @app.route('/')
-def home(): return "Servidor rodando."
-def rodar_api(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), use_reloader=False)
+def home(): 
+    return "Servidor rodando."
+
+def rodar_api(): 
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), use_reloader=False)
 
 if __name__ == '__main__':
     threading.Thread(target=rodar_api, daemon=True).start()
