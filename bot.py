@@ -4,6 +4,7 @@ import threading
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from flask import Flask
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -16,14 +17,17 @@ API_ID = int(os.getenv('TELEGRAM_API_ID', 0))
 API_HASH = os.getenv('TELEGRAM_API_HASH', '')
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+STRING_SESSION = os.getenv('STRING_SESSION', '')
 
-if not all([API_ID, API_HASH, SUPABASE_URL, SUPABASE_KEY]):
-    print("ERRO CRÍTICO: Faltam credenciais no arquivo .env!")
+if not all([API_ID, API_HASH, SUPABASE_URL, SUPABASE_KEY, STRING_SESSION]):
+    print("ERRO CRÍTICO: Faltam credenciais ou a STRING_SESSION no ambiente!")
     exit()
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = Flask(__name__)
-client = TelegramClient('sessao_konomee', API_ID, API_HASH)
+
+# Inicializa o cliente do Telegram usando a StringSession para o Render
+client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
 def identificar_parser_por_url(url):
     url_lower = url.lower()
