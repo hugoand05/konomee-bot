@@ -45,7 +45,7 @@ def identificar_parser_por_url(url):
         return temu.processar
     return None
 
-# Ouvinte universal com logs de debug detalhados
+# Ouvinte universal com diagnóstico completo do Supabase
 @client.on(events.NewMessage())
 async def processar_mensagem(event):
     chat_id_atual = event.chat_id
@@ -57,20 +57,23 @@ async def processar_mensagem(event):
     if not texto:
         return
     
-    # 1. Busca os grupos autorizados diretamente no Supabase em tempo real
+    # 1. Busca e inspeciona os grupos autorizados diretamente no Supabase em tempo real
     try:
         resposta_grupos = supabase.table('grupos_monitorados').select('*').execute()
+        print(f"[DEBUG SUPABASE] Dados retornados da tabela grupos_monitorados: {resposta_grupos.data}")
+        
         if resposta_grupos.data:
             autorizados = []
             for g in resposta_grupos.data:
-                tid = str(g.get('telegram_id') or g.get('id') or '')
+                # Verifica várias possibilidades de nomes de colunas usadas pelo painel web
+                tid = str(g.get('telegram_id') or g.get('chat_id') or g.get('group_id') or g.get('id') or '')
                 if tid:
                     autorizados.append(int(tid) if tid.lstrip('-').isdigit() else tid)
             
             # Se houver grupos cadastrados e o chat atual não estiver na lista
             if autorizados and chat_id_atual not in autorizados and str(chat_id_atual) not in [str(x) for x in autorizados]:
                 if chat_id_atual != 'me':  # Permite chat salvo para testes manuais
-                    print(f"[BLOQUEADO] Chat {chat_id_atual} não está na lista de grupos monitorados do Supabase.")
+                    print(f"[BLOQUEADO] Chat {chat_id_atual} não bate com a lista autorizada: {autorizados}")
                     return
     except Exception as e:
         print(f"Erro ao validar grupo no Supabase: {e}")
